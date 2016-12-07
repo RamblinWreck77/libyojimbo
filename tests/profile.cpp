@@ -288,6 +288,8 @@ int ProfileMain()
                 if ( !serverData->server->CanSendMsg( i ) )
                     break;
 
+                // todo
+                /*
                 Message * message = CreateRandomMessage( serverData->server->GetMsgFactory( i ), serverData->numMessagesSent[i] );
 
                 if ( message )
@@ -296,6 +298,7 @@ int ProfileMain()
 
                     serverData->numMessagesSent[i]++;
                 }
+                */
             } 
         }            
 

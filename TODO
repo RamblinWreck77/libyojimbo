@@ -1,12 +1,22 @@
 DONE    
 
-TODO
-
     Working on splitting up Server into BaseServer + Server.
 
     This will let me move most common server functionality into a base class, suitable for reuse with other server implementions, while moving all the connection handshaking stuff into the Server class.
 
     Will be quite a bit of work though, so trying this out in a branch.
+
+    Brought across basics, allocators.
+
+    Next I need to bring across the packet factories, message factories etc.
+
+    Goal is eventually to bring across the whole common functionality that should be the same for all server implementations, eg. everything except the actual connection negotiation packets basically.
+
+    Ported across most public functions, in a hacky way, lots of stuff commented out.
+
+TODO
+
+    Need to bring across rest of protected support functions as well, that are relevant at least. This will be a tricky refactor.
 
     =========================================
 
