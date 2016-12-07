@@ -208,23 +208,196 @@ namespace yojimbo
 #endif // #if !YOJIMBO_SECURE_MODE
     };
 
+    /**
+        Base server class.
+
+        Support functionality useful for all server implementations.
+     */
+
+    class BaseServer : public ConnectionListener
+    {
+    public:
+
+        /**
+            Base server constructor.
+
+            @param allocator The allocator used for all memory used by the server.
+            @param transport The transport used for sending and receiving packets.
+            @param config The client/server configuration.
+            @param time The current time in seconds. See BaseServer::AdvanceTime
+         */
+
+        BaseServer( Allocator & allocator, Transport & transport, const ClientServerConfig & config, double time );
+
+        /**
+            Base server destructor.
+
+            IMPORTANT: Please call Server::Stop before destroying the server. This is necessary because Stop is virtual and calling virtual methods from destructors does not give the expected behavior when you override that method.
+         */
+
+        virtual ~BaseServer();
+
+        /**
+            Advance server time.
+
+            Call this at the end of each frame to advance the server time forward. 
+
+            IMPORTANT: Please use a double for your time value so it maintains sufficient accuracy as time increases.
+         */
+
+        void AdvanceTime( double time );
+
+        /**
+            Gets the current server time.
+
+            @see BaseServer::AdvanceTime
+         */
+
+        double GetTime() const;
+
+        /**
+            Set server flags.
+
+            Flags are used to enable and disable server functionality.
+
+            @param flags The server flags to set. See yojimbo::ServerFlags for the set of server flags that can be passed in.
+
+            @see Server::GetFlags
+         */
+
+        void SetFlags( uint64_t flags );
+
+        /**
+            Get the current server flags.
+
+            @returns The server flags. See yojimbo::ServerFlags for the set of server flags.
+    
+            @see Server::SetFlags
+         */
+
+        uint64_t GetFlags() const;
+
+        /**
+            Get the counter value.
+
+            Counters are used to track event and actions performed by the server. They are useful for debugging, testing and telemetry.
+
+            @returns The counter value. See yojimbo::ServerCounters for the set of server counters.
+         */
+
+        uint64_t GetCounter( int index ) const;
+
+        /** 
+            Reset all server counters to zero.
+
+            This is typically used with a telemetry application after uploading the current set of counters to the telemetry backend. 
+
+            This way you can continue to accumulate events, and upload them at some frequency, like every 5 minutes to the telemetry backend, without double counting events.
+         */
+
+        void ResetCounters();
+
+        // -------------------------
+
+        Allocator & GetAllocator( ServerResourceType type, int clientIndex = 0 );
+
+        Allocator & GetGlobalAllocator() { assert( m_globalAllocator ); return *m_globalAllocator; }
+
+        Allocator & GetClientAllocator( int clientIndex ) { assert( clientIndex >= 0 ); assert( clientIndex < m_maxClients ); assert( m_clientAllocator[clientIndex] ); return *m_clientAllocator[clientIndex]; }
+
+    protected:
+
+        const ClientServerConfig & GetConfig() const;
+
+        Transport * GetTransport();
+
+        virtual void CreateAllocators();
+
+        virtual void DestroyAllocators(); 
+
+        virtual Allocator * CreateAllocator( Allocator & allocator, void * memory, size_t bytes );
+
+        void IncrementCounter( int counter );
+
+        bool TestFlag( uint64_t flag );
+
+    private:
+
+        ClientServerConfig m_config;                                        ///< The client/server configuration passed in to the constructor.
+
+        // temporary
+    protected:
+        Transport * m_transport;                                            ///< Transport interface for sending and receiving packets.
+    private:
+
+        Allocator * m_allocator;                                            ///< The allocator passed in to the constructor. All memory used by the server is allocated using this.
+
+        uint8_t * m_globalMemory;                                           ///< Block of memory backing the global allocator. Allocated with m_allocator.
+
+        uint8_t * m_clientMemory[MaxClients];                               ///< Blocks of memory backing the per-client allocators. Allocated with m_allocator.
+
+        Allocator * m_globalAllocator;                                      ///< The global allocator. This is used for allocations related to connection negotiation.
+
+        Allocator * m_clientAllocator[MaxClients];                          ///< Array of per-client allocators. These are used for allocations related to connected clients.
+
+        double m_time;                                                      ///< Current server time. See BaseServer::AdvanceTime
+
+        uint64_t m_flags;                                                   ///< Server flags. See BaseServer::SetFlags.
+
+        uint64_t m_counters[NUM_SERVER_COUNTERS];                           ///< Array of server counters. Used for debugging, testing and telemetry in production environments.
+
+    protected:  // todo: private
+
+        void * m_userContext;                                               ///< The user context specified by Server::SetUserContext. Provides a way for the user to pass a pointer to data so it's accessible when reading and writing packets.
+
+        PacketFactory * m_globalPacketFactory;                              ///< Global packet factory for creating global packets such as connection request packets and challenge response packets sent during connection negotiation.
+
+        PacketFactory * m_clientPacketFactory[MaxClients];                  ///< Per-client packet factory for creating and destroying packets sent to and received from connected clients.
+
+        MessageFactory * m_clientMessageFactory[MaxClients];                ///< Per-client message factory for creating and destroying messages. These are only allocated if ClientServerConfig::enableMessages is true.
+
+        int m_maxClients;                                                   ///< The maximum number of clients supported by this server. Corresponds to maxClients passed in to the last Server::Start call.
+
+        int m_numConnectedClients;                                          ///< The number of clients that are currently connected to the server.
+        
+        bool m_clientConnected[MaxClients];                                 ///< Array of connected flags per-client. Provides quick testing if a client is connected by client index.
+        
+        uint64_t m_clientId[MaxClients];                                    ///< Array of client id values per-client. Provides quick access to client id by client index.
+
+        Address m_serverAddress;                                            ///< The address of this server (the address that clients will be connecting to).
+
+        Address m_clientAddress[MaxClients];                                ///< Array of client addresses. Provides quick access to client address by client index.
+        
+        ServerClientData m_clientData[MaxClients];                          ///< Per-client data. This is the bulk of the data, and contains duplicates of data used for fast access.
+
+        bool m_allocateConnections;                                         ///< True if we should allocate connection objects in start. This is true if ClientServerConfig::enableMessages is true.
+
+        Connection * m_clientConnection[MaxClients];                        ///< Per-client connection object. The connect object manages the set of channels and sending and receiving messages between client and server. Allocated in Server::Start according to maxClients and freed in Server::Stop.
+
+        TransportContext m_globalTransportContext;                          ///< Global transport context for reading and writing packets. Used for packets that don't belong to a connected client. eg. connection negotiation packets.
+
+        TransportContext m_clientTransportContext[MaxClients];              ///< Array of per-client transport contexts for reading and writing packets that belong to connected clients.
+
+        ConnectionContext m_clientConnectionContext[MaxClients];            ///< Connection context for reading and writing connection packets to connected clients. These packets contain messages sent between the client and server.
+    };
+
     /** 
         A server with n slots for clients to connect to.
 
         This class is designed to be inherited from to create your own server class.
      */
 
-    class Server : public ConnectionListener
+    class Server : public BaseServer
     {
     public:
 
         /**
             The server constructor.
 
-            @param allocator The allocator for all memory used by the server.
-            @param transport The transport for sending and receiving packets.
+            @param allocator The allocator used for all memory used by the server.
+            @param transport The transport used for sending and receiving packets.
             @param config The client/server configuration.
-            @param time The current time in seconds. See Server::AdvanceTime
+            @param time The current time in seconds. See BaseServer::AdvanceTime
          */
 
         Server( Allocator & allocator, Transport & transport, const ClientServerConfig & config, double time );
@@ -345,22 +518,12 @@ namespace yojimbo
 
             If no packet has been received within the timeout period, the client is disconnected and its client slot is made available for other clients to connect to.
 
-            @see Server::AdvanceTime
+            @see BaseServer::AdvanceTime
             @see ClientServerConfig::connectionTimeOut
             @see ClientServerConfig::connectionNegotiationTimeOut
          */
 
         void CheckForTimeOut();
-
-        /**
-            Advance server time.
-
-            Call this at the end of each frame to advance the server time forward. 
-
-            IMPORTANT: Please use a double for your time value so it maintains sufficient accuracy as time increases.
-         */
-
-        void AdvanceTime( double time );
 
         /**
             Is the server running?
@@ -446,56 +609,6 @@ namespace yojimbo
 
         const Address & GetServerAddress() const;
 
-        /**
-            Set server flags.
-
-            Flags are used to enable and disable server functionality.
-
-            @param flags The server flags to set. See yojimbo::ServerFlags for the set of server flags that can be passed in.
-
-            @see Server::GetFlags
-         */
-
-        void SetFlags( uint64_t flags );
-
-        /**
-            Get the current server flags.
-
-            @returns The server flags. See yojimbo::ServerFlags for the set of server flags.
-    
-            @see Server::SetFlags
-         */
-
-        uint64_t GetFlags() const;
-
-        /**
-            Get the counter value.
-
-            Counters are used to track event and actions performed by the server. They are useful for debugging, testing and telemetry.
-
-            @returns The counter value. See yojimbo::ServerCounters for the set of server counters.
-         */
-
-        uint64_t GetCounter( int index ) const;
-
-        /** 
-            Reset all counters to zero.
-
-            This is typically used with a telemetry application after uploading the current set of counters to the telemetry backend. 
-
-            This way you can continue to accumulate events, and upload them at some frequency, like every 5 minutes to the telemetry backend, without double counting events.
-         */
-
-        void ResetCounters();
-
-        /**
-            Gets the current server time.
-
-            @see Server::AdvanceTime
-         */
-
-        double GetTime() const;
-
         // =====================================
 
         // todo: sort this out
@@ -515,10 +628,6 @@ namespace yojimbo
         Packet * CreateGlobalPacket( int type );
 
         Packet * CreateClientPacket( int clientIndex, int type );
-
-        Allocator & GetGlobalAllocator() { assert( m_globalAllocator ); return *m_globalAllocator; }
-
-        Allocator & GetClientAllocator( int clientIndex ) { assert( clientIndex >= 0 ); assert( clientIndex < m_maxClients ); assert( m_clientAllocator[clientIndex] ); return *m_clientAllocator[clientIndex]; }
 
     protected:
 
@@ -688,14 +797,6 @@ namespace yojimbo
 
         virtual void SetEncryptedPacketTypes();
 
-        virtual void CreateAllocators();
-
-        virtual void DestroyAllocators(); 
-
-        virtual Allocator * CreateAllocator( Allocator & allocator, void * memory, size_t bytes );
-
-        Allocator & GetAllocator( ServerResourceType type, int clientIndex = 0 );
-
         virtual PacketFactory * CreatePacketFactory( Allocator & allocator, ServerResourceType type, int clientIndex = 0 );
 
         virtual MessageFactory * CreateMessageFactory( Allocator & allocator, ServerResourceType type, int clientIndex = 0 );
@@ -732,75 +833,19 @@ namespace yojimbo
 
         KeepAlivePacket * CreateKeepAlivePacket( int clientIndex );
 
-        Transport * GetTransport() { return m_transport; }
-
     private:
-
-        void Defaults();
-
-        ClientServerConfig m_config;                                        ///< The client/server configuration passed in to the constructor.
-
-        Allocator * m_allocator;                                            ///< The allocator passed in to the constructor. All memory used by the server is allocated using this.
-
-        uint8_t * m_globalMemory;                                           ///< The block of memory backing the global allocator. Allocated with m_allocator.
-
-        uint8_t * m_clientMemory[MaxClients];                               ///< The block of memory backing the per-client allocators. Allocated with m_allocator.
-
-        Allocator * m_globalAllocator;                                      ///< The global allocator. This is used for allocations related to connection negotiation.
-
-        Allocator * m_clientAllocator[MaxClients];                          ///< Array of per-client allocator. These are used for allocations related to connected clients.
-
-        Transport * m_transport;                                            ///< Transport interface for sending and receiving packets.
-
-        void * m_userContext;                                               ///< The user context specified by Server::SetUserContext. Provides a way for the user to pass a pointer to data so it's accessible when reading and writing packets.
-
-        TransportContext m_globalTransportContext;                          ///< Global transport context for reading and writing packets. Used for packets that don't belong to a connected client. eg. connection negotiation packets.
-
-        TransportContext m_clientTransportContext[MaxClients];              ///< Array of per-client transport contexts for reading and writing packets that belong to connected clients.
-
-        ConnectionContext m_clientConnectionContext[MaxClients];            ///< Connection context for reading and writing connection packets to connected clients. These packets contain messages sent between the client and server.
-
-        PacketFactory * m_globalPacketFactory;                              ///< Global packet factory for creating global packets such as connection request packets and challenge response packets sent during connection negotiation.
-
-        PacketFactory * m_clientPacketFactory[MaxClients];                  ///< Per-client packet factory for creating and destroying packets sent to and received from connected clients.
-
-        MessageFactory * m_clientMessageFactory[MaxClients];                ///< Per-client message factory for creating and destroying messages. These are only allocated if ClientServerConfig::enableMessages is true.
-
-        ReplayProtection * m_clientReplayProtection[MaxClients];            ///< Per-client protection against packet replay attacks. Discards old and already received packets.
 
         uint8_t m_privateKey[KeyBytes];                                     ///< Private key used for encrypting and decrypting connect and challenge tokens.
 
         uint64_t m_challengeTokenNonce;                                     ///< Nonce used for encoding challenge tokens
 
-        double m_time;                                                      ///< Current server time. See Server::AdvanceTime
-
-        uint64_t m_flags;                                                   ///< Server flags. See Server::SetFlags.
-
-        int m_maxClients;                                                   ///< The maximum number of clients supported by this server. Corresponds to maxClients passed in to the last Server::Start call.
-
-        int m_numConnectedClients;                                          ///< The number of clients that are currently connected to the server.
-        
-        bool m_clientConnected[MaxClients];                                 ///< Array of connected flags per-client. Provides quick testing if a client is connected by client index.
-        
-        uint64_t m_clientId[MaxClients];                                    ///< Array of client id values per-client. Provides quick access to client id by client index.
-
-        Address m_serverAddress;                                            ///< The address of this server (the address that clients will be connecting to).
-
         uint64_t m_globalSequence;                                          ///< The global sequence number for packets sent not corresponding to any particular connected client, eg. packets sent as part of connection negotiation.
 
         uint64_t m_clientSequence[MaxClients];                              ///< Per-client sequence number for packets sent to this client. Resets to zero each time the client slot is reset.
 
-        Address m_clientAddress[MaxClients];                                ///< Array of client addresses. Provides quick access to client address by client index.
-        
-        ServerClientData m_clientData[MaxClients];                          ///< Per-client data. This is the bulk of the data, and contains duplicates of data used for fast access.
-
-        bool m_allocateConnections;                                         ///< True if we should allocate connection objects in start. This is true if ClientServerConfig::enableMessages is true.
-
-        Connection * m_clientConnection[MaxClients];                        ///< Per-client connection object. The connect object manages the set of channels and sending and receiving messages between client and server. Allocated in Server::Start according to maxClients and freed in Server::Stop.
+        ReplayProtection * m_clientReplayProtection[MaxClients];            ///< Per-client replay protection buffer to against packet replay attacks. Discards old and already received packets.
 
         ConnectTokenEntry m_connectTokenEntries[MaxConnectTokenEntries];    ///< Array of connect tokens entries. Used to avoid replay attacks of the same connect token for different addresses.
-
-        uint64_t m_counters[NUM_SERVER_COUNTERS];                           ///< Array of server counters. Used for debugging, testing and telemetry in production environments.
 
     private:
 
