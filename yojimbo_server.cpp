@@ -55,14 +55,15 @@ namespace yojimbo
         memset( m_clientPacketFactory, 0, sizeof( m_clientPacketFactory ) );
         memset( m_clientMessageFactory, 0, sizeof( m_clientMessageFactory ) );
         memset( m_clientConnection, 0, sizeof( m_clientConnection ) );
+
+        for ( int i = 0; i < MaxClients; ++i )
+            ResetClientSlot( i );
     }
 
     BaseServer::~BaseServer()
     {
-        // todo
-
-        // IMPORTANT: You must stop the server before you destroy it
-        //assert( !IsRunning() );
+        // IMPORTANT: You must stop the server before you destroy it!
+        assert( !IsRunning() );
 
         assert( m_transport );
 
@@ -72,6 +73,7 @@ namespace yojimbo
     void BaseServer::SetUserContext( void * context )
     {
         assert( !IsRunning() );
+
         m_userContext = context;
     }
 
@@ -91,9 +93,7 @@ namespace yojimbo
 
         CreateAllocators();
 
-        // todo: move resource setup into base class
-        /*
-        // global resources
+        // allocate global resources
 
         Allocator & globalAllocator = GetAllocator( SERVER_RESOURCE_GLOBAL );
 
@@ -110,7 +110,7 @@ namespace yojimbo
 
         m_transport->SetContext( m_globalTransportContext );
 
-        // per-client resources
+        // allocate per-client resources
 
         for ( int clientIndex = 0; clientIndex < m_maxClients; ++clientIndex )
         {
@@ -122,7 +122,10 @@ namespace yojimbo
 
             assert( m_clientPacketFactory[clientIndex]->GetNumPacketTypes() == m_globalPacketFactory->GetNumPacketTypes() );
 
+            // todo: move across to server
+            /*
             m_clientReplayProtection[clientIndex] = YOJIMBO_NEW( clientAllocator, ReplayProtection );
+            */
         }
 
         if ( m_allocateConnections )
@@ -147,7 +150,8 @@ namespace yojimbo
         {
             m_clientTransportContext[clientIndex].allocator = &GetAllocator( SERVER_RESOURCE_PER_CLIENT, clientIndex );
             m_clientTransportContext[clientIndex].packetFactory = m_clientPacketFactory[clientIndex];
-            m_clientTransportContext[clientIndex].replayProtection = m_clientReplayProtection[clientIndex];
+            // todo: move across to server
+            //m_clientTransportContext[clientIndex].replayProtection = m_clientReplayProtection[clientIndex];
             m_clientTransportContext[clientIndex].userContext = m_userContext;
 
             if ( m_allocateConnections )
@@ -157,9 +161,8 @@ namespace yojimbo
                 m_clientTransportContext[clientIndex].connectionContext = &m_clientConnectionContext[clientIndex];
             }
         }     
-        */
 
-        // todo
+        // todo: move this into the Server class somewhere (only needs to be done once, right? put it in ctor? or start?)
         //SetEncryptedPacketTypes();
 
         OnStart( maxClients );
@@ -178,8 +181,6 @@ namespace yojimbo
 
         m_transport->Reset();
 
-        // todo
-        /*
         for ( int clientIndex = 0; clientIndex < m_maxClients; ++clientIndex )
         {
             Allocator & clientAllocator = GetAllocator( SERVER_RESOURCE_PER_CLIENT, clientIndex );
@@ -190,14 +191,13 @@ namespace yojimbo
 
             YOJIMBO_DELETE( clientAllocator, PacketFactory, m_clientPacketFactory[clientIndex] );
 
-            YOJIMBO_DELETE( clientAllocator, ReplayProtection, m_clientReplayProtection[clientIndex] );
+            // todo: move across to server class
+            //YOJIMBO_DELETE( clientAllocator, ReplayProtection, m_clientReplayProtection[clientIndex] );
         }
 
         Allocator & globalAllocator = GetAllocator( SERVER_RESOURCE_GLOBAL );
 
         YOJIMBO_DELETE( globalAllocator, PacketFactory, m_globalPacketFactory );
-
-        */
 
         DestroyAllocators();
 
@@ -241,8 +241,7 @@ namespace yojimbo
             m_transport->RemoveEncryptionMapping( m_clientData[clientIndex].address );
         }
 
-        // todo
-        //ResetClientState( clientIndex );
+        ResetClientSlot( clientIndex );
 
         IncrementCounter( SERVER_COUNTER_CLIENT_DISCONNECTS );
 
@@ -549,9 +548,10 @@ namespace yojimbo
         return m_config;
     }
 
-    Transport * BaseServer::GetTransport()
+    Transport & BaseServer::GetTransport()
     {
-        return m_transport;
+        assert( m_transport );
+        return *m_transport;
     }
 
     void BaseServer::CreateAllocators()
@@ -640,6 +640,38 @@ namespace yojimbo
                 return i;
         }
         return -1;
+    }
+
+    void BaseServer::ResetClientSlot( int clientIndex )
+    {
+        assert( clientIndex >= 0 );
+        assert( clientIndex < MaxClients );
+
+        m_clientConnected[clientIndex] = false;
+        m_clientId[clientIndex] = 0;
+        m_clientAddress[clientIndex] = Address();
+        m_clientData[clientIndex] = ServerClientData();
+        
+        // todo: bring client sequence across or move this into server?
+        //m_clientSequence[clientIndex] = 0;
+
+        if ( m_clientAllocator[clientIndex] )
+            m_clientAllocator[clientIndex]->ClearError();
+
+        if ( m_clientPacketFactory[clientIndex] )
+            m_clientPacketFactory[clientIndex]->ClearError();
+
+        if ( m_clientMessageFactory[clientIndex] )
+            m_clientMessageFactory[clientIndex]->ClearError();
+
+        if ( m_clientConnection[clientIndex] )
+            m_clientConnection[clientIndex]->Reset();
+
+        // todo: move to server?
+        /*
+        if ( m_clientReplayProtection[clientIndex] )
+            m_clientReplayProtection[clientIndex]->Reset();
+            */
     }
 
     // ---------------------------------------------------
@@ -741,13 +773,9 @@ namespace yojimbo
     {
         m_challengeTokenNonce = 0;
         m_globalSequence = 1ULL<<63;
-
         memset( m_privateKey, 0, KeyBytes );
         memset( m_clientReplayProtection, 0, sizeof( m_clientReplayProtection ) );
         memset( m_clientSequence, 0, sizeof( m_clientSequence ) );
-
-        for ( int i = 0; i < MaxClients; ++i )
-            ResetClientState( i );
     }
 
     Server::~Server()
@@ -887,45 +915,9 @@ namespace yojimbo
 
     void Server::SetEncryptedPacketTypes()
     {
-        // todo
-        /*
-        m_transport->EnablePacketEncryption();
-
-        m_transport->DisableEncryptionForPacketType( CLIENT_SERVER_PACKET_CONNECTION_REQUEST );
-        */
-    }
-
-    void Server::ResetClientState( int clientIndex )
-    {
-        assert( clientIndex >= 0 );
-        assert( clientIndex < MaxClients );
-
-        // todo
-        /*
-        m_clientConnected[clientIndex] = false;
-        m_clientId[clientIndex] = 0;
-        m_clientAddress[clientIndex] = Address();
-        m_clientData[clientIndex] = ServerClientData();
-        m_clientSequence[clientIndex] = 0;
-        */
-
-        // todo
-        /*
-        if ( m_clientAllocator[clientIndex] )
-            m_clientAllocator[clientIndex]->ClearError();
-
-        if ( m_clientPacketFactory[clientIndex] )
-            m_clientPacketFactory[clientIndex]->ClearError();
-
-        if ( m_clientMessageFactory[clientIndex] )
-            m_clientMessageFactory[clientIndex]->ClearError();
-
-        if ( m_clientConnection[clientIndex] )
-            m_clientConnection[clientIndex]->Reset();
-
-        if ( m_clientReplayProtection[clientIndex] )
-            m_clientReplayProtection[clientIndex]->Reset();
-            */
+        Transport & transport = GetTransport();
+        transport.EnablePacketEncryption();
+        transport.DisableEncryptionForPacketType( CLIENT_SERVER_PACKET_CONNECTION_REQUEST );
     }
 
     bool Server::FindConnectTokenEntry( const uint8_t * mac )

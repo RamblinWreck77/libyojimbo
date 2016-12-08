@@ -22,6 +22,14 @@ WOULD BE NICE
 
     ------------------
 
+    Copy the doxygen action to the windows section of premake5.lua for windows users.
+
+    Test doxygen on windows. Ideally, open the documentation after it's generated, like on MacOS.
+
+    May the "open" action only apply on MacOS. It's not going to be available on Linux. Make sure generating doxygen docs on Linux works OK.
+
+    ------------------
+
     Add a unit test for user context to make sure it's working end-to-end.
 
     ------------------

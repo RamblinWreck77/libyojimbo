@@ -754,23 +754,6 @@ namespace yojimbo
         return m_allocateNetworkSimulator && m_networkSimulator->IsActive();
     }
 
-    /*
-    void BaseTransport::SetContext( void * context )
-    {
-        m_context = context;
-    }
-
-    void BaseTransport::SetUserContext( void * context )
-    {
-        m_userContext = context;
-    }
-
-    void BaseTransport::SetStreamAllocator( Allocator & allocator )
-    {
-        m_streamAllocator = &allocator;
-    }
-    */
-
     void BaseTransport::EnablePacketEncryption()
     {
         assert( m_context.packetFactory );

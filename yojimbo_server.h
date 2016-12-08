@@ -505,7 +505,7 @@ namespace yojimbo
         /**
             Override this method to get a callback when the server is started.
 
-            @param maxClients The number of client slots are being allocated. eg. maximum number of clients that can connect to the server.
+            @param maxClients The number of client slots to allocate. This is the number of clients that can connect to the server.
          */
 
         virtual void OnStart( int maxClients );
@@ -668,7 +668,7 @@ namespace yojimbo
 
         const ClientServerConfig & GetConfig() const;
 
-        Transport * GetTransport();
+        Transport & GetTransport();
 
         void CreateAllocators();
 
@@ -685,6 +685,8 @@ namespace yojimbo
         bool TestFlag( uint64_t flag );
 
         int FindFreeClientIndex() const;
+
+        virtual void ResetClientSlot( int clientIndex );
 
     private:
 
@@ -803,9 +805,7 @@ namespace yojimbo
 
     protected:
 
-        virtual void SetEncryptedPacketTypes();
-
-        virtual void ResetClientState( int clientIndex );
+        void SetEncryptedPacketTypes();
 
         bool FindConnectTokenEntry( const uint8_t * mac );
         
