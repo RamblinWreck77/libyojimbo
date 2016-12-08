@@ -275,7 +275,7 @@ namespace yojimbo
             {
                 if ( m_clientConnection[clientIndex] )
                 {
-                    // todo
+                    // todo: this part moves into Server
                     /*
                     ConnectionPacket * packet = m_clientConnection[clientIndex]->GeneratePacket();
 
@@ -289,7 +289,7 @@ namespace yojimbo
 
             if ( m_clientData[clientIndex].lastPacketSendTime + ( 1.0f / GetConfig().connectionKeepAliveSendRate ) <= time )
             {
-                // todo
+                // todo: do keep alives stay here? not sure yet.
                 /*
                 KeepAlivePacket * packet = CreateKeepAlivePacket( clientIndex );
 
@@ -360,8 +360,6 @@ namespace yojimbo
 
         m_time = time;
 
-        // todo
-        /*
         // check for global allocator error, increase counter and clear error. nothing we can do but take note.
 
         if ( m_globalAllocator->GetError() )
@@ -445,7 +443,6 @@ namespace yojimbo
                 }
             }
         }
-        */
     }
 
     bool BaseServer::IsRunning() const
@@ -652,7 +649,7 @@ namespace yojimbo
         m_clientAddress[clientIndex] = Address();
         m_clientData[clientIndex] = ServerClientData();
         
-        // todo: bring client sequence across or move this into server?
+        // todo: move this into server
         //m_clientSequence[clientIndex] = 0;
 
         if ( m_clientAllocator[clientIndex] )
@@ -667,7 +664,7 @@ namespace yojimbo
         if ( m_clientConnection[clientIndex] )
             m_clientConnection[clientIndex]->Reset();
 
-        // todo: move to server?
+        // todo: move to server
         /*
         if ( m_clientReplayProtection[clientIndex] )
             m_clientReplayProtection[clientIndex]->Reset();

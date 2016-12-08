@@ -730,6 +730,7 @@ namespace yojimbo
 
         Address m_clientAddress[MaxClients];                                ///< Array of client addresses. Provides quick access to client address by client index.
         
+        // todo: split out the data that belongs in "Server" from here, and just rely on arrays instead. This goes away.
         ServerClientData m_clientData[MaxClients];                          ///< Per-client data. This is the bulk of the data, and contains duplicates of data used for fast access.
 
         bool m_allocateConnections;                                         ///< True if we should allocate connection objects in start. This is true if ClientServerConfig::enableMessages is true.
