@@ -22,6 +22,10 @@ WOULD BE NICE
 
     ------------------
 
+    Add checks for per-client messages and packets to make sure they come from the correct per-client factory.
+
+    ------------------
+
     Copy the doxygen action to the windows section of premake5.lua for windows users.
 
     Test doxygen on windows. Ideally, open the documentation after it's generated, like on MacOS.

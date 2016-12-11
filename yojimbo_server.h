@@ -61,6 +61,8 @@ namespace yojimbo
         Stores data for connected clients such as their address, globally unique client id, last packet send and receive times used for timeouts and keep-alive packets and so on.
      */
 
+    // todo: move this to concept of 
+    /*
     struct ServerClientData
     {
         // todo: maybe just make this SoA
@@ -91,11 +93,12 @@ namespace yojimbo
 #endif // #if !YOJIMBO_SECURE_MODE
         }
     };
+    */
 
     /**
         Connect token entries are used to remember and reject recently used connect tokens sent from clients.
 
-        This protects against attacks where the same connect token is used to connect multiple clients to the server in a short period of time.
+        This protects against attacks where one token is used to connect multiple clients to the server in a short period of time.
      */
 
     struct ConnectTokenEntry
@@ -121,6 +124,16 @@ namespace yojimbo
 
     enum ServerCounters
     {
+        SERVER_COUNTER_CLIENT_CONNECTS,                                                         ///< Number of times a client has connected to the server.
+        SERVER_COUNTER_CLIENT_DISCONNECTS,                                                      ///< Number of times a client has been disconnected from the server.
+        SERVER_COUNTER_CLIENT_TIMEOUTS,                                                         ///< Number of timeouts where the client disconnected without sending disconnect packets to the server. You want few of these.
+        SERVER_COUNTER_CLIENT_ALLOCATOR_ERRORS,                                                 ///< Number of times a client was disconnected from the server because their allocator entered into an error state (eg. failed to allocate a block of memory). This indicates that the client has exhausted their per-client resources. See yojimbo::serverPerClientMemory.
+        SERVER_COUNTER_CLIENT_CONNECTION_ERRORS,                                                ///< Number of times a client was disconnected from the server because their connection entered into an error state. This indicates that something went wrong with the internal protocol for sending messages between client and server.
+        SERVER_COUNTER_CLIENT_MESSAGE_FACTORY_ERRORS,                                           ///< Number of times a client was disconnected from the server because their packet factory went into an error state. This indicates that the client tried to create a packet but failed to do so.
+        SERVER_COUNTER_CLIENT_PACKET_FACTORY_ERRORS,                                            ///< Number of times a client was disconnected from the server because their message factory went into an error state. This indicates that the client tried to create a message but failed to do so.
+        SERVER_COUNTER_GLOBAL_PACKET_FACTORY_ERRORS,                                            ///< Number of times the global packet factory entered into an error state because it could not allocate a packet. This probably indicates insufficient global memory for the connection negotiation process on the server. See ClientServerConfig::serverGlobalMemory.
+        SERVER_COUNTER_GLOBAL_ALLOCATOR_ERRORS,                                                 ///< Number of times the global allocator went into error state because it could not perform an allocation. This probably indicates insufficient global memory for the connection negotiation process on the server. See ClientServerConfig::serverGlobalMemory.
+
         SERVER_COUNTER_CONNECTION_REQUEST_PACKETS_RECEIVED,                                     ///< Number of connection request packets received by the server
         SERVER_COUNTER_CONNECTION_REQUEST_CHALLENGE_PACKETS_SENT,                               ///< Number of challenge packets sent from the server to clients requesting connection
         SERVER_COUNTER_CONNECTION_REQUEST_DENIED_SERVER_IS_FULL,                                ///< Number of times the server denied a connection request because the server was full (all client slots occupied)
@@ -144,18 +157,7 @@ namespace yojimbo
         SERVER_COUNTER_CHALLENGE_RESPONSE_IGNORED_ADDRESS_ALREADY_CONNECTED,                    ///< Number of times the server ignored a challange response packet because a client with that address is already connected.
         SERVER_COUNTER_CHALLENGE_RESPONSE_IGNORED_CLIENT_ID_ALREADY_CONNECTED,                  ///< Number of times the server ignored a challenge response because a client with that client id is already connected. 
         SERVER_COUNTER_CHALLENGE_RESPONSE_IGNORED_FAILED_TO_DECRYPT_CHALLENGE_TOKEN,            ///< Number of times the server ignored a challenge response because it couldn't decrypt the challenge token.
-        
-        SERVER_COUNTER_CLIENT_CONNECTS,                                                         ///< Number of times a client has connected to the server.
-        SERVER_COUNTER_CLIENT_DISCONNECTS,                                                      ///< Number of times a client has been disconnected from the server.
-        SERVER_COUNTER_CLIENT_CLEAN_DISCONNECTS,                                                ///< Number of clean disconnects where the client sent disconnect packets to the server. You want lots of these.
-        SERVER_COUNTER_CLIENT_TIMEOUTS,                                                         ///< Number of timeouts where the client disconnected without sending disconnect packets to the server. You want few of these.
-        SERVER_COUNTER_CLIENT_ALLOCATOR_ERRORS,                                                 ///< Number of times a client was disconnected from the server because their allocator entered into an error state (eg. failed to allocate a block of memory). This indicates that the client has exhausted their per-client resources. See yojimbo::serverPerClientMemory.
-        SERVER_COUNTER_CLIENT_CONNECTION_ERRORS,                                                ///< Number of times a client was disconnected from the server because their connection entered into an error state. This indicates that something went wrong with the internal protocol for sending messages between client and server.
-        SERVER_COUNTER_CLIENT_MESSAGE_FACTORY_ERRORS,                                           ///< Number of times a client was disconnected from the server because their packet factory went into an error state. This indicates that the client tried to create a packet but failed to do so.
-        SERVER_COUNTER_CLIENT_PACKET_FACTORY_ERRORS,                                            ///< Number of times a client was disconnected from the server because their message factory went into an error state. This indicates that the client tried to create a message but failed to do so.
-        SERVER_COUNTER_GLOBAL_PACKET_FACTORY_ERRORS,                                            ///< Number of times the global packet factory entered into an error state because it could not allocate a packet. This probably indicates insufficient global memory for the connection negotiation process on the server. See ClientServerConfig::serverGlobalMemory.
-        SERVER_COUNTER_GLOBAL_ALLOCATOR_ERRORS,                                                 ///< Number of times the global allocator went into error state because it could not perform an allocation. This probably indicates insufficient global memory for the connection negotiation process on the server. See ClientServerConfig::serverGlobalMemory.
-        
+                
         NUM_SERVER_COUNTERS                                                                     ///< The number of server counters.
     };
 
@@ -256,7 +258,7 @@ namespace yojimbo
         void SetUserContext( void * context );
 
         /**      
-            Set the server IP address. 
+            Set the server IP address.
 
             This should be a public IP address, eg. the address that a client would use to connect to the server.
              
@@ -492,13 +494,29 @@ namespace yojimbo
 
         // -------------------------
 
+        Message * CreateMsg( int clientIndex, int type );
+
+        bool CanSendMsg( int clientIndex ) const;
+
+        void SendMsg( int clientIndex, Message * message );
+
+        Message * ReceiveMsg( int clientIndex );
+
+        void ReleaseMsg( int clientIndex, Message * message );
+
+        MessageFactory & GetMsgFactory( int clientIndex );
+
+        Packet * CreateGlobalPacket( int type );
+
+        Packet * CreateClientPacket( int clientIndex, int type );
+
+        // -------------------------
+
         Allocator & GetAllocator( ServerResourceType type, int clientIndex = 0 );
 
         Allocator & GetGlobalAllocator() { assert( m_globalAllocator ); return *m_globalAllocator; }
 
         Allocator & GetClientAllocator( int clientIndex ) { assert( clientIndex >= 0 ); assert( clientIndex < m_maxClients ); assert( m_clientAllocator[clientIndex] ); return *m_clientAllocator[clientIndex]; }
-
-    protected:
 
     protected:
 
@@ -688,6 +706,8 @@ namespace yojimbo
 
         virtual void ResetClientSlot( int clientIndex );
 
+        virtual void ProcessPacket( Packet * packet, const Address & address, uint64_t sequence );
+
     private:
 
         ClientServerConfig m_config;                                        ///< The client/server configuration passed in to the constructor.
@@ -714,8 +734,6 @@ namespace yojimbo
 
         uint64_t m_flags;                                                   ///< Server flags. See BaseServer::SetFlags.
 
-        uint64_t m_counters[NUM_SERVER_COUNTERS];                           ///< Array of server counters. Used for debugging, testing and telemetry in production environments.
-
         void * m_userContext;                                               ///< The user context specified by Server::SetUserContext. Provides a way for the user to pass a pointer to data so it's accessible when reading and writing packets.
 
         int m_maxClients;                                                   ///< The maximum number of clients supported by this server. Corresponds to maxClients passed in to the last Server::Start call.
@@ -729,9 +747,15 @@ namespace yojimbo
         Address m_serverAddress;                                            ///< The address of this server (the address that clients will be connecting to).
 
         Address m_clientAddress[MaxClients];                                ///< Array of client addresses. Provides quick access to client address by client index.
+
+        double m_lastPacketSendTime[MaxClients];                            ///< Array of last packet send times per-client. Used to send out keep-alive packets when necessary.
+
+        double m_lastPacketReceiveTime[MaxClients];                         ///< Array of last packet receive times per-client. Used for timeouts.
         
+        /*
         // todo: split out the data that belongs in "Server" from here, and just rely on arrays instead. This goes away.
         ServerClientData m_clientData[MaxClients];                          ///< Per-client data. This is the bulk of the data, and contains duplicates of data used for fast access.
+        */
 
         bool m_allocateConnections;                                         ///< True if we should allocate connection objects in start. This is true if ClientServerConfig::enableMessages is true.
 
@@ -742,6 +766,8 @@ namespace yojimbo
         TransportContext m_clientTransportContext[MaxClients];              ///< Array of per-client transport contexts for reading and writing packets that belong to connected clients.
 
         ConnectionContext m_clientConnectionContext[MaxClients];            ///< Connection context for reading and writing connection packets to connected clients. These packets contain messages sent between the client and server.
+
+        uint64_t m_counters[NUM_SERVER_COUNTERS];                           ///< Array of server counters. Used for debugging, testing and telemetry in production environments.
     };
 
     /** 
@@ -783,26 +809,15 @@ namespace yojimbo
 
         void SetPrivateKey( const uint8_t * privateKey );
 
-        // =====================================
+        // ----------------
 
-        // todo: sort this out
+        // overrides
 
-        Message * CreateMsg( int clientIndex, int type );
+        void Start( int maxClients = MaxClients );
 
-        bool CanSendMsg( int clientIndex ) const;
+        void Stop();
 
-        void SendMsg( int clientIndex, Message * message );
-
-        Message * ReceiveMsg( int clientIndex );
-
-        void ReleaseMsg( int clientIndex, Message * message );
-
-        // todo
-        //MessageFactory & GetMsgFactory( int clientIndex );
-
-        Packet * CreateGlobalPacket( int type );
-
-        Packet * CreateClientPacket( int clientIndex, int type );
+        // ----------------
 
     protected:
 

@@ -121,11 +121,6 @@ namespace yojimbo
             assert( m_clientPacketFactory[clientIndex] );
 
             assert( m_clientPacketFactory[clientIndex]->GetNumPacketTypes() == m_globalPacketFactory->GetNumPacketTypes() );
-
-            // todo: move across to server
-            /*
-            m_clientReplayProtection[clientIndex] = YOJIMBO_NEW( clientAllocator, ReplayProtection );
-            */
         }
 
         if ( m_allocateConnections )
@@ -150,8 +145,6 @@ namespace yojimbo
         {
             m_clientTransportContext[clientIndex].allocator = &GetAllocator( SERVER_RESOURCE_PER_CLIENT, clientIndex );
             m_clientTransportContext[clientIndex].packetFactory = m_clientPacketFactory[clientIndex];
-            // todo: move across to server
-            //m_clientTransportContext[clientIndex].replayProtection = m_clientReplayProtection[clientIndex];
             m_clientTransportContext[clientIndex].userContext = m_userContext;
 
             if ( m_allocateConnections )
@@ -162,9 +155,7 @@ namespace yojimbo
             }
         }     
 
-        // todo: move this into the Server class somewhere (only needs to be done once, right? put it in ctor? or start?)
-        //SetEncryptedPacketTypes();
-
+        // todo: server that overrides this method needs to be responsible for calling this callback?
         OnStart( maxClients );
     }
 
@@ -232,14 +223,17 @@ namespace yojimbo
         }
         */
 
-        m_transport->RemoveContextMapping( m_clientData[clientIndex].address );
+        m_transport->RemoveContextMapping( m_clientAddress[clientIndex] );
 
+        // todo: move encryption to server implementation
+        /*
 #if !YOJIMBO_SECURE_MODE
         if ( !m_clientData[clientIndex].insecure )
 #endif // #if !YOJIMBO_SECURE_MODE
         {
             m_transport->RemoveEncryptionMapping( m_clientData[clientIndex].address );
         }
+        */
 
         ResetClientSlot( clientIndex );
 
@@ -271,7 +265,8 @@ namespace yojimbo
             if ( !m_clientConnected[clientIndex] )
                 continue;
 
-            if ( m_clientData[clientIndex].fullyConnected )
+            // todo: fully connected concept belongs to server -- so server needs to flip it around and have a "pending connect" state per-client slot or something
+            //if ( m_clientData[clientIndex].fullyConnected )
             {
                 if ( m_clientConnection[clientIndex] )
                 {
@@ -287,7 +282,7 @@ namespace yojimbo
                 }
             }
 
-            if ( m_clientData[clientIndex].lastPacketSendTime + ( 1.0f / GetConfig().connectionKeepAliveSendRate ) <= time )
+            if ( m_lastPacketSendTime[clientIndex] + ( 1.0f / GetConfig().connectionKeepAliveSendRate ) <= time )
             {
                 // todo: do keep alives stay here? not sure yet.
                 /*
@@ -321,11 +316,8 @@ namespace yojimbo
             if ( !packet )
                 break;
 
-            // todo
-            /*
             if ( IsRunning() )
                 ProcessPacket( packet, address, sequence );
-                */
 
             packet->Destroy();
         }
@@ -343,7 +335,7 @@ namespace yojimbo
             if ( !m_clientConnected[clientIndex] )
                 continue;
 
-            if ( m_clientData[clientIndex].lastPacketReceiveTime + GetConfig().connectionTimeOut < time )
+            if ( m_lastPacketReceiveTime[clientIndex] + GetConfig().connectionTimeOut < time )
             {
                 OnClientError( clientIndex, SERVER_CLIENT_ERROR_TIMEOUT );
 
@@ -540,6 +532,88 @@ namespace yojimbo
 
     // ----------
 
+    Message * BaseServer::CreateMsg( int clientIndex, int type )
+    {
+        MessageFactory & messageFactory = GetMsgFactory( clientIndex );
+        return messageFactory.Create( type );
+    }
+
+    bool BaseServer::CanSendMsg( int clientIndex ) const
+    {
+        if ( !IsRunning() )
+            return false;
+
+        if ( !IsClientConnected( clientIndex ) )
+            return false;
+
+        assert( m_clientMessageFactory );
+        
+        assert( m_clientConnection[clientIndex] );
+
+        return m_clientConnection[clientIndex]->CanSendMsg();
+    }
+
+    void BaseServer::SendMsg( int clientIndex, Message * message )
+    {
+        assert( clientIndex >= 0 );
+        assert( clientIndex < m_maxClients );
+        assert( m_clientMessageFactory[clientIndex] );
+
+        if ( !m_clientConnected[clientIndex] )
+        {
+            m_clientMessageFactory[clientIndex]->Release( message );
+            return;
+        }
+
+        assert( m_clientConnection[clientIndex] );
+
+        m_clientConnection[clientIndex]->SendMsg( message );
+    }
+
+    Message * BaseServer::ReceiveMsg( int clientIndex )
+    {
+        assert( m_clientMessageFactory );
+
+        if ( !m_clientConnected[clientIndex] )
+            return NULL;
+
+        assert( m_clientConnection[clientIndex] );
+
+        return m_clientConnection[clientIndex]->ReceiveMsg();
+    }
+
+    void BaseServer::ReleaseMsg( int clientIndex, Message * message )
+    {
+        assert( message );
+        assert( clientIndex >= 0 );
+        assert( clientIndex < m_maxClients );
+        assert( m_clientMessageFactory[clientIndex] );
+        m_clientMessageFactory[clientIndex]->Release( message );
+    }
+
+    MessageFactory & BaseServer::GetMsgFactory( int clientIndex )
+    {
+        assert( clientIndex >= 0 );
+        assert( clientIndex < m_maxClients );
+        assert( m_clientMessageFactory[clientIndex] );
+        return *m_clientMessageFactory[clientIndex];
+    }
+
+    Packet * BaseServer::CreateGlobalPacket( int type )
+    {
+        return m_globalPacketFactory->CreatePacket( type );
+    }
+
+    Packet * BaseServer::CreateClientPacket( int clientIndex, int type )
+    {
+        assert( clientIndex >= 0 );
+        assert( clientIndex < m_maxClients );
+        assert( m_clientPacketFactory[clientIndex] );
+        return m_clientPacketFactory[clientIndex]->CreatePacket( type );
+    }
+
+    // ----------
+
     const ClientServerConfig & BaseServer::GetConfig() const
     {
         return m_config;
@@ -613,7 +687,7 @@ namespace yojimbo
 
     MessageFactory * BaseServer::CreateMessageFactory( Allocator & /*allocator*/, ServerResourceType /*type*/, int /*clientIndex*/ )
     {
-        assert( !"override Server::CreateMessageFactory if you want to use messages" );
+        assert( !"You must override Server::CreateMessageFactory if you want to send and receive messages. See YOJIMBO_SERVER_MESSAGE_FACTORY macro" );
         return NULL;
     }
 
@@ -647,7 +721,8 @@ namespace yojimbo
         m_clientConnected[clientIndex] = false;
         m_clientId[clientIndex] = 0;
         m_clientAddress[clientIndex] = Address();
-        m_clientData[clientIndex] = ServerClientData();
+        m_lastPacketSendTime[clientIndex] = -1000.0f;
+        m_lastPacketReceiveTime[clientIndex] = -1000.0f;
         
         // todo: move this into server
         //m_clientSequence[clientIndex] = 0;
@@ -669,6 +744,14 @@ namespace yojimbo
         if ( m_clientReplayProtection[clientIndex] )
             m_clientReplayProtection[clientIndex]->Reset();
             */
+    }
+
+    void BaseServer::ProcessPacket( Packet * packet, const Address & address, uint64_t /*sequence*/ )
+    {
+        OnPacketReceived( packet->GetType(), address );
+
+        // todo: move this out into a separate function to be called
+        //m_clientData[clientIndex].lastPacketReceiveTime = GetTime();
     }
 
     // ---------------------------------------------------
@@ -785,136 +868,51 @@ namespace yojimbo
         memcpy( m_privateKey, privateKey, KeyBytes );
     }
 
-    Message * Server::CreateMsg( int clientIndex, int type )
-    {
-        (void) clientIndex;
-        (void) type;
-        // todo
-        /*
-        MessageFactory & messageFactory = GetMsgFactory( clientIndex );
-        return messageFactory.Create( type );
-        */
-        return NULL;
-    }
-
-    bool Server::CanSendMsg( int clientIndex ) const
-    {
-        if ( !IsRunning() )
-            return false;
-
-        if ( !IsClientConnected( clientIndex ) )
-            return false;
-
-        //MessageFactory & messageFactory = GetMsgFactory( clientIndex );
-
-        // todo
-        return false;
-
-        /*
-        assert( m_clientMessageFactory );
-        
-        assert( m_clientConnection[clientIndex] );
-
-        return m_clientConnection[clientIndex]->CanSendMsg();
-        */
-    }
-
-    void Server::SendMsg( int clientIndex, Message * message )
-    {
-        (void) clientIndex;
-        (void) message;
-
-        // todo
-
-        /*
-        assert( clientIndex >= 0 );
-        assert( clientIndex < m_maxClients );
-        assert( m_clientMessageFactory[clientIndex] );
-
-        if ( !m_clientConnected[clientIndex] )
-        {
-            m_clientMessageFactory[clientIndex]->Release( message );
-            return;
-        }
-
-        assert( m_clientConnection[clientIndex] );
-
-        m_clientConnection[clientIndex]->SendMsg( message );
-        */
-    }
-
-    Message * Server::ReceiveMsg( int clientIndex )
-    {
-        (void) clientIndex;
-
-        // todo
-        return NULL;
-
-        /*
-        assert( m_clientMessageFactory );
-
-        if ( !m_clientConnected[clientIndex] )
-            return NULL;
-
-        assert( m_clientConnection[clientIndex] );
-
-        return m_clientConnection[clientIndex]->ReceiveMsg();
-        */
-    }
-
-    void Server::ReleaseMsg( int clientIndex, Message * message )
-    {
-        (void) clientIndex;
-        (void) message;
-        // todo
-        /*
-        assert( message );
-        assert( clientIndex >= 0 );
-        assert( clientIndex < m_maxClients );
-        assert( m_clientMessageFactory[clientIndex] );
-        m_clientMessageFactory[clientIndex]->Release( message );
-        */
-    }
-
-    /*
-    MessageFactory & Server::GetMsgFactory( int clientIndex )
-    {
-        assert( clientIndex >= 0 );
-        assert( clientIndex < m_maxClients );
-        assert( m_clientMessageFactory[clientIndex] );
-        return *m_clientMessageFactory[clientIndex];
-    }
-    */
-
-    Packet * Server::CreateGlobalPacket( int type )
-    {
-        (void) type;
-        // todo:
-        return NULL;
-        /*
-        return m_globalPacketFactory->CreatePacket( type );
-        */
-    }
-
-    Packet * Server::CreateClientPacket( int clientIndex, int type )
-    {
-        // todo
-        (void) clientIndex;
-        (void) type;
-        return NULL;
-        /*
-        assert( clientIndex >= 0 );
-        assert( clientIndex < m_maxClients );
-        assert( m_clientPacketFactory[clientIndex] );
-        return m_clientPacketFactory[clientIndex]->CreatePacket( type );
-        */
-    }
-
     void Server::SetEncryptedPacketTypes()
     {
         Transport & transport = GetTransport();
         transport.EnablePacketEncryption();
         transport.DisableEncryptionForPacketType( CLIENT_SERVER_PACKET_CONNECTION_REQUEST );
+    }
+
+    void Server::Start( int maxClients )
+    {
+        BaseServer::Start( maxClients );
+
+        SetEncryptedPacketTypes();
+
+        for ( int clientIndex = 0; clientIndex < maxClients; ++clientIndex )
+        {
+            Allocator & clientAllocator = GetAllocator( SERVER_RESOURCE_PER_CLIENT, clientIndex );
+
+            m_clientReplayProtection[clientIndex] = YOJIMBO_NEW( clientAllocator, ReplayProtection );
+        }
+
+        // todo: need a way to setup transport context here. maybe this means replay protection moves into base class?!
+        /*
+        for ( int clientIndex = 0; clientIndex < m_maxClients; ++clientIndex )
+        {
+            m_clientTransportContext[clientIndex].allocator = &GetAllocator( SERVER_RESOURCE_PER_CLIENT, clientIndex );
+            m_clientTransportContext[clientIndex].packetFactory = m_clientPacketFactory[clientIndex];
+            // todo: move across to server
+            //m_clientTransportContext[clientIndex].replayProtection = m_clientReplayProtection[clientIndex];
+            m_clientTransportContext[clientIndex].userContext = m_userContext;
+
+            if ( m_allocateConnections )
+            {
+                m_clientConnectionContext[clientIndex].messageConfig = &( GetConfig().messageConfig );
+                m_clientConnectionContext[clientIndex].messageFactory = m_clientMessageFactory[clientIndex];
+                m_clientTransportContext[clientIndex].connectionContext = &m_clientConnectionContext[clientIndex];
+            }
+        } 
+        */    
+
+        // todo: we need to call the OnStart here
+    }
+
+    void Server::Stop()
+    {
+        BaseServer::Stop();
     }
 
     bool Server::FindConnectTokenEntry( const uint8_t * mac )
@@ -982,9 +980,10 @@ namespace yojimbo
 
     void Server::ConnectClient( int clientIndex, const Address & clientAddress, uint64_t clientId )
     {
-        // todo
+        // todo: need to move this into the base class, and then override some parts of this here
         (void) clientAddress;
         (void) clientId;
+
 
         /*
         assert( IsRunning() );
@@ -1019,6 +1018,7 @@ namespace yojimbo
         m_transport->AddContextMapping( clientAddress, m_clientTransportContext[clientIndex] );
         */
 
+        // todo: I have no idea how I'm going to enable a server to override this method, and still have this called at the right time, unless I defer calling this to the base class.
         OnClientConnect( clientIndex );
 
         KeepAlivePacket * keepAlivePacket = CreateKeepAlivePacket( clientIndex );
@@ -1033,40 +1033,28 @@ namespace yojimbo
     {
         assert( IsRunning() );
 
-        // todo
-        /*
-        m_transport->SendPacket( address, packet, ++m_globalSequence, immediate );
-        */
+        GetTransport().SendPacket( address, packet, ++m_globalSequence, immediate );
 
         OnPacketSent( packet->GetType(), address, immediate );
     }
 
     void Server::SendPacketToConnectedClient( int clientIndex, Packet * packet, bool immediate )
     {
-        // todo
-        (void) clientIndex;
-        (void) packet;
-        (void) immediate;
-
-
-        /*
-        assert( IsRunning() );
         assert( packet );
-        assert( clientIndex >= 0 );
-        assert( clientIndex < m_maxClients );
-        assert( m_clientConnected[clientIndex] );
+        assert( IsRunning() );
+        assert( IsClientConnected( clientIndex ) );
 
-        const double time = GetTime();
+        //const double time = GetTime();
         
+
+        // todo: need function to set last packet sent time for client index
+        /*
         m_clientData[clientIndex].lastPacketSendTime = time;
         */
         
-        // todo
-        /*
-        m_transport->SendPacket( m_clientAddress[clientIndex], packet, ++m_clientSequence[clientIndex], immediate );
-        */
+        GetTransport().SendPacket( GetClientAddress( clientIndex ), packet, ++m_clientSequence[clientIndex], immediate );
         
-        //OnPacketSent( packet->GetType(), m_clientAddress[clientIndex], immediate );
+        OnPacketSent( packet->GetType(), GetClientAddress( clientIndex ), immediate );
     }
 
     void Server::ProcessConnectionRequest( const ConnectionRequestPacket & packet, const Address & address )
@@ -1149,24 +1137,24 @@ namespace yojimbo
 
         if ( !FindConnectTokenEntry( packet.connectTokenData ) )
         {
-            // todo
-            /*
-            if ( !m_transport->AddEncryptionMapping( address, connectToken.serverToClientKey, connectToken.clientToServerKey ) )
+            Transport & transport = GetTransport();
+
+            if ( !transport.AddEncryptionMapping( address, connectToken.serverToClientKey, connectToken.clientToServerKey ) )
             {
                 debug_printf( "ignored connection request: failed to add encryption mapping\n" );
                 OnConnectionRequest( SERVER_CONNECTION_REQUEST_IGNORED_FAILED_TO_ADD_ENCRYPTION_MAPPING, packet, address, connectToken );
                 IncrementCounter( SERVER_COUNTER_CONNECTION_REQUEST_IGNORED_FAILED_TO_ADD_ENCRYPTION_MAPPING );
                 return;
             }
-            */
         }
 
-        // todo
-        /*
-        assert( m_numConnectedClients >= 0 );
-        assert( m_numConnectedClients <= m_maxClients );
+        const int numConnectedClients = GetNumConnectedClients();
+        const int maxClients = GetMaxClients();
 
-        if ( m_numConnectedClients == m_maxClients )
+        assert( numConnectedClients >= 0 );
+        assert( numConnectedClients <= maxClients );
+
+        if ( numConnectedClients == maxClients )
         {
             debug_printf( "denied connection request: server is full\n" );
             OnConnectionRequest( SERVER_CONNECTION_REQUEST_DENIED_SERVER_IS_FULL, packet, address, connectToken );
@@ -1178,7 +1166,6 @@ namespace yojimbo
             }
             return;
         }
-        */
 
         if ( !FindOrAddConnectTokenEntry( address, packet.connectTokenData ) )
         {
@@ -1264,9 +1251,13 @@ namespace yojimbo
             return;
         }
 
-        // todo
-        /*
-        if ( m_numConnectedClients == m_maxClients )
+        const int numConnectedClients = GetNumConnectedClients();
+        const int maxClients = GetMaxClients();
+
+        assert( numConnectedClients >= 0 );
+        assert( numConnectedClients <= maxClients );
+
+        if ( numConnectedClients == maxClients )
         {
             debug_printf( "challenge response denied: server is full\n" );
             OnChallengeResponse( SERVER_CHALLENGE_RESPONSE_DENIED_SERVER_IS_FULL, packet, address, challengeToken );
@@ -1281,7 +1272,6 @@ namespace yojimbo
 
             return;
         }
-        */
 
         const int clientIndex = FindFreeClientIndex();
 
@@ -1300,20 +1290,14 @@ namespace yojimbo
     {
         assert( IsRunning() );
 
-        // todo
-
-        (void) address;
-
-        /*
         const int clientIndex = FindClientIndex( address );
         if ( clientIndex == -1 )
             return;
 
-        assert( clientIndex >= 0 );
-        assert( clientIndex < m_maxClients );
+//        const double time = GetTime();
 
-        const double time = GetTime();
-        
+        // todo: need a function to set last packet receive time, and the state for pending connect per-client here.
+        /*        
         m_clientData[clientIndex].lastPacketReceiveTime = time;
 
         m_clientData[clientIndex].fullyConnected = true;
@@ -1324,21 +1308,11 @@ namespace yojimbo
     {
         assert( IsRunning() );
 
-        // todo
-        (void) address;
-
-        /*
         const int clientIndex = FindClientIndex( address );
         if ( clientIndex == -1 )
             return;
 
-        assert( clientIndex >= 0 );
-        assert( clientIndex < m_maxClients );
-
-        IncrementCounter( SERVER_COUNTER_CLIENT_CLEAN_DISCONNECTS );
-
         DisconnectClient( clientIndex, false );
-        */
     }
 
 #if !YOJIMBO_SECURE_MODE
@@ -1352,9 +1326,10 @@ namespace yojimbo
 
         debug_printf( "Server::ProcessInsecureConnect - clientSalt = %" PRIx64 "\n", packet.clientSalt );
 
-        // todo
-        /*
-        if ( m_numConnectedClients == m_maxClients )
+        const int numConnectedClients = GetNumConnectedClients();
+        const int maxClients = GetMaxClients();
+
+        if ( numConnectedClients == maxClients )
         {
             debug_printf( "insecure connect denied. server is full\n" );
             IncrementCounter( SERVER_COUNTER_CHALLENGE_RESPONSE_DENIED_SERVER_IS_FULL );
@@ -1365,8 +1340,7 @@ namespace yojimbo
             }
             return;
         }
-        */
-
+        
         if ( FindClientIndex( address ) != -1 )
         {
             debug_printf( "insecure connect ignored. address already connected\n" );
@@ -1390,7 +1364,7 @@ namespace yojimbo
 
         ConnectClient( clientIndex, address, packet.clientId );
 
-        // todo
+        // todo: need per-client salt and insecure flag here
         /*
         m_clientData[clientIndex].clientSalt = packet.clientSalt;
 
@@ -1406,7 +1380,7 @@ namespace yojimbo
         if ( clientIndex == -1 )
             return;
 
-        // todo
+        // todo: need way to get client connection object, and way to set last packet receive time for client
         (void) packet;
         (void) address;
         /*
@@ -1466,7 +1440,7 @@ namespace yojimbo
         if ( !ProcessUserPacket( clientIndex, packet ) )
             return;
 
-        // todo
+        // todo: need way to set last packet recieve time for client, and pending connect state
         /*
         m_clientData[clientIndex].lastPacketReceiveTime = GetTime();
 
@@ -1476,26 +1450,21 @@ namespace yojimbo
 
     KeepAlivePacket * Server::CreateKeepAlivePacket( int clientIndex )
     {
-        /*
-        assert( clientIndex >= 0 );
-        assert( clientIndex < m_maxClients );
-
-        assert( m_clientConnected[clientIndex] );
+        assert( IsClientConnected( clientIndex ) );
 
         KeepAlivePacket * packet = (KeepAlivePacket*) CreateClientPacket( clientIndex, CLIENT_SERVER_PACKET_KEEPALIVE );
 
         if ( packet )
         {
             packet->clientIndex = clientIndex;
+            // todo: need client salt in server class per-client
+            /*
 #if !YOJIMBO_SECURE_MODE
             packet->clientSalt = m_clientData[clientIndex].clientSalt;
 #endif // #if !YOJIMBO_SECURE_MODE
+            */
         }
 
         return packet;
-        */
-        // todo
-        (void) clientIndex;
-        return NULL;
     }
 }

@@ -52,6 +52,8 @@ DOCUMENTATION NOTES
 
     Would repeatedly sending the same event to clients work with ref counting? I think it *could8, but right now, I don't think the send message adds a ref, so it won't.
 
+    Broadcast message could be adjusted to add just enough refs to the message so it works out, eg. n - 1, where n is the number of clients to broadcast to.
+
     -------------------------------
 
     If I were to make a C wrapper for this library, what would I wrap, and what would I leave out?
@@ -63,12 +65,6 @@ DOCUMENTATION NOTES
     Perhaps separate out the common client/server functionality into BaseServer/BaseClient that implement ServerInterface/ClientInterface.
 
     This provides users of the library with an implementation path for extending the library to different client/server implementations, which would be necessary to integrate with PS4/X1 APIs.
-
-    -------------------------------
-
-    Maybe:
-
-    FindClientIndex -> FindClientByAddress / FindClientByID
 
     -------------------------------
 
