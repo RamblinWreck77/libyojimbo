@@ -60,6 +60,14 @@ WOULD BE NICE
 
     eg. pm coverity
 
+    Details here: https://scan.coverity.com/travis_ci
+
+    ------------------
+
+    Setup travis multi-OS
+
+    https://docs.travis-ci.com/user/multi-os/
+
     ------------------
 
     Implement QoS within the connection, eg. packet loss, latency measurements etc, and make this available to the user to query.
