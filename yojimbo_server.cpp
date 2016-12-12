@@ -153,7 +153,7 @@ namespace yojimbo
                 m_clientConnectionContext[clientIndex].messageFactory = m_clientMessageFactory[clientIndex];
                 m_clientTransportContext[clientIndex].connectionContext = &m_clientConnectionContext[clientIndex];
             }
-        }     
+        }
 
         // todo: server that overrides this method needs to be responsible for calling this callback?
         OnStart( maxClients );
@@ -527,7 +527,7 @@ namespace yojimbo
 
     void BaseServer::ResetCounters()
     {
-        memset( m_counters, sizeof( m_counters ), 0 );
+        memset( m_counters, 0, sizeof( m_counters ) );
     }
 
     // ----------
